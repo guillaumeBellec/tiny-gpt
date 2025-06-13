@@ -390,7 +390,7 @@ def train_model(args):
             m.float()
     #if hasattr(config, "coordinate_descent_tuning"):
     #    config.coordinate_descent_tuning = True  # suggested by @Chillee
-    #model = torch.compile(model)
+    model = torch.compile(model)
 
     if args.distributed:
         model = DDP(model, device_ids=[ddp_local_rank])
@@ -512,9 +512,9 @@ if __name__ == "__main__":
     import argparse
     import socket
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--batch_size", type=int, default=4)
-    arg_parser.add_argument("--max_len", type=int, default=1024)
-    arg_parser.add_argument("--num_samples", type=int, default=50_000)
+    arg_parser.add_argument("--batch_size", type=int, default=1)
+    arg_parser.add_argument("--max_len", type=int, default=2**16)
+    arg_parser.add_argument("--num_samples", type=int, default=500_000)
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
     arg_parser.add_argument("--distributed", type=int, default=0)
     arg_parser.add_argument("--model_size", type=str, default="small")
