@@ -189,9 +189,7 @@ class GPT(nn.Module):
             return logits, None
 
         # Much more efficient - no manual filtering needed
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)),
-                               target.view(-1),
-                               ignore_index=-100)
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target.view(-1)) #, ignore_index=-100)
         return logits, loss
 
 
