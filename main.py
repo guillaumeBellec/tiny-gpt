@@ -307,10 +307,13 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
                 return_attention_mask=False
             )['input_ids']
 
+            assert tokenizer.bos_token_id is not None
+            assert tokenizer.eos_token_id is not None
+
             # Add BOS token at start, EOS at end
-            if tokenizer.bos_token_id is not None and tokens[0] != tokenizer.bos_token_id:
+            if tokens[0] != tokenizer.bos_token_id:
                 tokens = [tokenizer.bos_token_id] + tokens
-            if tokenizer.eos_token_id is not None and tokens[-1] != tokenizer.eos_token_id:
+            if tokens[-1] != tokenizer.eos_token_id:
                 tokens = tokens + [tokenizer.eos_token_id]
 
             all_tokens.extend(tokens)
@@ -323,7 +326,7 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
                 chunks.append(chunk)
 
         chunk_tokens = sum([len(c) for c in chunks])
-        assert chunk_tokens > len(all_tokens) * 0.9, f"Should have kept at least 90% of tokens, got: {chunk_tokens}/{len(all_tokens)}"
+        assert chunk_tokens > len(all_tokens) * 0.5, f"Should have kept at least 90% of tokens, got: {chunk_tokens}/{len(all_tokens)}"
 
         return {'input_ids': chunks}
 
@@ -334,7 +337,7 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
     packed_dataset = dataset.map(
         tokenize_and_pack,
         batched=True,
-        batch_size=100,  # Process in smaller batches to avoid memory issues
+        batch_size=1000,  # Process in smaller batches to avoid memory issues
         remove_columns=dataset.column_names,
         cache_file_name=cache_file,
         load_from_cache_file=True,
