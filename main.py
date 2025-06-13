@@ -413,7 +413,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
-    arg_parser.add_argument("--data_dir", type=str, default=None)
+    arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/")
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
