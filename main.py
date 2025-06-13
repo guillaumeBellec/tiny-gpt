@@ -318,7 +318,12 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
         # Split into chunks of exactly max_length
         chunks = []
         for i in range(0, len(all_tokens) - max_length, max_length):
-            chunks.append(all_tokens[i:i + max_length])
+            chunk = all_tokens[i:i + max_length]
+            if len(chunk) == max_length:
+                chunks.append(chunk)
+
+        chunk_tokens = sum([len(c) for c in chunks])
+        assert chunk_tokens > len(all_tokens) * 0.9, f"Should have kept at least 90% of tokens, got: {chunk_tokens}/{len(all_tokens)}"
 
         return {'input_ids': chunks}
 
