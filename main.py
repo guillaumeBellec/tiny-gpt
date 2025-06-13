@@ -524,9 +524,9 @@ if __name__ == "__main__":
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
-    args.sim_name = f"{args.host_name}_{date}"
     args.date = date
     args.host_name = socket.gethostname()
+    args.sim_name = f"{args.host_name}_{date}"
     args.device = device
 
 
