@@ -195,7 +195,8 @@ class GPT(nn.Module):
         return logits, loss
 
 
-def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
+
+def create_dataloader_slow(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
     """Create a dataloader from FineWeb dataset"""
 
     # Set up cache directory
@@ -204,67 +205,69 @@ def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_s
 
     print("Loading FineWeb dataset...")
     # Load FineWeb sample-10BT (smallest subset, ~10B tokens)
+    # Replace streaming=True with:
     dataset = load_dataset(
         "HuggingFaceFW/fineweb",
-        name="sample-10BT",  # This is the 10B token sample
+        name="sample-10BT",
         split="train",
         cache_dir=cache_dir,
-        streaming=True  # Use streaming for large datasets
-    )
+        streaming=False  # Much faster for small datasets
+    ).select(range(num_samples))  # Use select() instead of take()
 
     # Take only a subset for quick training
     dataset = dataset.take(num_samples)
 
     def tokenize_function(examples):
-        # Tokenize the text - FineWeb uses 'text' column
+        # Don't pad during tokenization - waste of compute
         tokens = tokenizer(
             examples['text'],
-            padding=True, # TODO: ideally, no need to pad. Rather append sequences after one another.
             truncation=True,
             max_length=max_length,
-            add_special_tokens=True  # Ensure proper special tokens
+            add_special_tokens=True,
+            padding=False,  # No padding here
+            return_attention_mask=False  # Don't need attention mask
         )
         return {"input_ids": tokens["input_ids"]}
+
+    cache_file = os.path.join(cache_dir, f"tokenized_{num_samples}_{max_length}.arrow") if cache_dir else None
 
     # Tokenize dataset
     tokenized_dataset = dataset.map(
         tokenize_function,
         batched=True,
-        remove_columns=["text", "id", "dump", "url", "file_path", "language", "language_score", "token_count", "score"]
-        # Remove FineWeb columns
+        batch_size=1000,  # Larger batches for tokenization
+        remove_columns=dataset.column_names,  # Remove all original columns
+        cache_file_name=cache_file,  # Cache the tokenized data
+        load_from_cache_file=True,
+        desc="Tokenizing"
     )
 
     def collate_fn(batch):
-        # Handle unknown tokens by replacing with UNK token
-        input_ids = [item['input_ids'] for item in batch]
+        input_ids = [torch.tensor(item['input_ids']) for item in batch]
 
-        # Get UNK token ID (fallback to 0 if not available)
-        unk_token_id = getattr(tokenizer, 'unk_token_id', 0)
-        if unk_token_id is None:
-            unk_token_id = 0
-
+        # Find max length in batch (up to max_length)
         max_len = min(max_length, max(len(seq) for seq in input_ids))
 
         padded_inputs = []
         padded_targets = []
 
         for seq in input_ids:
-            seq = torch.tensor(seq)
-
             if len(seq) > max_len:
                 seq = seq[:max_len]
+            elif len(seq) < 2:  # Skip sequences too short
+                continue
 
-            # Create input and target (shifted by 1)
+            # Pad sequence
             padded_seq = F.pad(seq, (0, max_len - len(seq)), value=tokenizer.pad_token_id)
 
+            # Create input/target pairs
             input_seq = padded_seq[:-1]
             target_seq = padded_seq[1:]
 
-            # Replace -1 tokens with UNK token and mask padded tokens
-            #target_seq = torch.where(target_seq == -1, unk_token_id, target_seq)
+            # Mask padded positions in targets
             target_seq = torch.where(
                 input_seq == tokenizer.pad_token_id,
-                torch.tensor(-100),  # Use -100 for ignored tokens in loss
+                torch.tensor(-100),
                 target_seq
             )
 
@@ -285,6 +288,43 @@ def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_s
 
     return dataloader
 
+
+def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
+    if cache_dir is not None:
+        os.makedirs(cache_dir, exist_ok=True)
+
+    print("Loading FineWeb dataset...")
+    dataset = load_dataset(
+        "HuggingFaceFW/fineweb",
+        name="sample-10BT",
+        split="train",
+        cache_dir=cache_dir,
+        streaming=False
+    ).select(range(num_samples))
+
+    # Cache tokenized dataset
+    cache_file = os.path.join(cache_dir, f"tokenized_{num_samples}_{max_length}.arrow") if cache_dir else None
+
+    tokenized_dataset = dataset.map(
+        tokenize_function,
+        batched=True,
+        batch_size=1000,  # Larger batches for tokenization
+        remove_columns=dataset.column_names,  # Remove all original columns
+        cache_file_name=cache_file,  # Cache the tokenized data
+        load_from_cache_file=True,
+        desc="Tokenizing"
+    )
+
+    dataloader = DataLoader(
+        tokenized_dataset,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        num_workers=2,  # Add multiprocessing
+        pin_memory=True,  # Faster GPU transfer
+        persistent_workers=True  # Keep workers alive
+    )
+
+    return dataloader
 
 def train_model(args):
     """Train the simple GPT model"""
