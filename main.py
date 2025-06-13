@@ -325,7 +325,7 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
             if len(chunk) == max_length:
                 chunks.append(chunk)
 
-        print([len(c) for c in chunks])
+        #print([len(c) for c in chunks])
         chunk_tokens = sum([len(c) for c in chunks])
         assert chunk_tokens > len(all_tokens) * 0.5, f"Should have kept at least 90% of tokens, got: {chunk_tokens}/{len(all_tokens)}"
 
