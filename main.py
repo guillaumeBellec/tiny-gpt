@@ -195,11 +195,10 @@ class GPT(nn.Module):
         return logits, loss
 
 
-def create_dataloader(tokenizer, batch_size=32, max_length=256, num_samples=5000):
+def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
     """Create a dataloader from FineWeb dataset"""
 
     # Set up cache directory
-    cache_dir = "/home/guillaume/_Programming/data"
     os.makedirs(cache_dir, exist_ok=True)
 
     print("Loading FineWeb dataset...")
@@ -303,7 +302,7 @@ def train_model(args):
     if args.wandb: run.config.update({"num_params": n_params})
 
     # Create dataloader
-    dataloader = create_dataloader(tokenizer, batch_size=args.bach_size, max_length=args.max_len, num_samples=args.num_samples)
+    dataloader = create_dataloader(tokenizer, args.data_dir, batch_size=args.bach_size, max_length=args.max_len, num_samples=args.num_samples)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.1)
@@ -413,6 +412,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
     arg_parser.add_argument("--model_size", type=str, default="tiny")
     arg_parser.add_argument("--wandb", type=int, default=1)
+    arg_parser.add_argument("--data_dir", type=str, default="/home/guillaume/_Programming/data")
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
