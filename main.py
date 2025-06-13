@@ -292,6 +292,13 @@ def train_model(args):
     # Create model
     config = TinyGPTConfig() if args.model_size == "tiny" else GPT2Config() if args.model_size == "small" else None
     model = GPT(config=config).to(device)
+    model = model.cuda().bfloat16()
+    for m in model.modules():
+        if isinstance(m, CastedLinear):
+            m.float()
+    #if hasattr(config, "coordinate_descent_tuning"):
+    #    config.coordinate_descent_tuning = True  # suggested by @Chillee
+    model = torch.compile(model)
 
     n_params =sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model has {n_params:.1f}M parameters")
