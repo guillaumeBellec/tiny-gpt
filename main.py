@@ -303,7 +303,7 @@ def train_model(args):
     if args.wandb: run.config.update({"num_params": n_params})
 
     # Create dataloader
-    dataloader = create_dataloader(tokenizer, args.data_dir, batch_size=args.bach_size, max_length=args.max_len, num_samples=args.num_samples)
+    dataloader = create_dataloader(tokenizer, args.data_dir, batch_size=args.batch_size, max_length=args.max_len, num_samples=args.num_samples)
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.1)
@@ -407,7 +407,7 @@ if __name__ == "__main__":
     import argparse
     import socket
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--bach_size", type=int, default=4)
+    arg_parser.add_argument("--batch_size", type=int, default=4)
     arg_parser.add_argument("--max_len", type=int, default=1024)
     arg_parser.add_argument("--num_samples", type=int, default=50_000)
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
