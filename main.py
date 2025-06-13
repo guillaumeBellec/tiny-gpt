@@ -310,9 +310,9 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
             )['input_ids']
 
             # Add BOS token at start, EOS at end
-            if tokenizer.bos_token_id is not None:
+            if tokenizer.bos_token_id is not None and tokens[0] != tokenizer.bos_token_id:
                 tokens = [tokenizer.bos_token_id] + tokens
-            if tokenizer.eos_token_id is not None:
+            if tokenizer.eos_token_id is not None and tokens[-1] != tokenizer.eos_token_id:
                 tokens = tokens + [tokenizer.eos_token_id]
 
             all_tokens.extend(tokens)
@@ -404,7 +404,7 @@ def train_model(args):
     params = list(raw_model.transformer.h.parameters())
     matrix_params = [p for p in params if p.ndim == 2]
     scalar_params = [p for p in params if p.ndim < 2] + [raw_model.skip_weights]
-    optimizer3 = torch.optim.AdamW([raw_model.transformer.wte.weight], lr=0.04, betas=(0.9, 0.95), weight_decay=0.1, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
+    optimizer3 = torch.optim.AdamW(matrix_params, lr=0.04, betas=(0.9, 0.95), weight_decay=0.1, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
     optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.9, 0.95), fused=True)  # note that this learning rate is neither sensitive nor tuned
     optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
     schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200) for o in optimizers]
