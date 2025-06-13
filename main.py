@@ -410,9 +410,9 @@ if __name__ == "__main__":
     arg_parser.add_argument("--max_len", type=int, default=1024)
     arg_parser.add_argument("--num_samples", type=int, default=50_000)
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
-    arg_parser.add_argument("--model_size", type=str, default="tiny")
+    arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
-    arg_parser.add_argument("--data_dir", type=str, default="/home/guillaume/_Programming/data")
+    arg_parser.add_argument("--data_dir", type=str, default=None)
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
