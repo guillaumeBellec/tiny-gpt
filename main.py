@@ -199,7 +199,8 @@ def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_s
     """Create a dataloader from FineWeb dataset"""
 
     # Set up cache directory
-    os.makedirs(cache_dir, exist_ok=True)
+    if cache_dir is not None:
+        os.makedirs(cache_dir, exist_ok=True)
 
     print("Loading FineWeb dataset...")
     # Load FineWeb sample-10BT (smallest subset, ~10B tokens)
