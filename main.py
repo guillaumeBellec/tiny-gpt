@@ -413,7 +413,7 @@ def train_model(args):
     params = list(raw_model.transformer.h.parameters())
     matrix_params = [p for p in params if p.ndim == 2]
     scalar_params = [p for p in params if p.ndim < 2] + [raw_model.skip_weights]
-    optimizer3 = torch.optim.AdamW(matrix_params, lr=0.04, betas=(0.9, 0.95), weight_decay=0.1, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
+    optimizer3 = torch.optim.AdamW(matrix_params, lr=args.lr3, betas=(0.9, 0.95), weight_decay=args.wd, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
     optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.9, 0.95), fused=True)  # note that this learning rate is neither sensitive nor tuned
     optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
     schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200) for o in optimizers]
@@ -520,6 +520,8 @@ if __name__ == "__main__":
     arg_parser.add_argument("--distributed", type=int, default=0)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
+    arg_parser.add_argument("--lr3", type=int, default=1e-3)
+    arg_parser.add_argument("--wd", type=int, default=1e-2)
     arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/fineweb/")
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
