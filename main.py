@@ -294,7 +294,7 @@ def train_model(args):
     tokenizer.pad_token = tokenizer.eos_token
 
     # Create model
-    config = TinyGPTConfig() if args.model_size == "tiny" else GPT2Config() if "args.model_type" == "small" else None
+    config = TinyGPTConfig() if args.model_size == "tiny" else GPT2Config() if args.model_size == "small" else None
     model = GPT(config=config).to(device)
 
     n_params =sum(p.numel() for p in model.parameters()) / 1e6
