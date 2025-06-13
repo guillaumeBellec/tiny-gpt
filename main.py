@@ -215,8 +215,8 @@ def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_s
             truncation=True,
             max_length=max_length,
             add_special_tokens=True,
-            padding=False,  # No padding here
-            return_attention_mask=False  # Don't need attention mask
+            padding=False,
+            return_attention_mask=False
         )
         return {"input_ids": tokens["input_ids"]}
 
@@ -281,6 +281,90 @@ def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_s
 
     return dataloader
 
+
+def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
+    if cache_dir is not None:
+        os.makedirs(cache_dir, exist_ok=True)
+
+    print("Loading FineWeb dataset...")
+    dataset = load_dataset(
+        "HuggingFaceFW/fineweb",
+        name="sample-10BT",
+        split="train",
+        cache_dir=cache_dir,
+        streaming=False
+    ).select(range(num_samples))
+
+    def tokenize_and_pack(examples):
+        """Tokenize and concatenate all sequences into one long sequence"""
+        all_tokens = []
+
+        for text in examples['text']:
+            # Tokenize without truncation first
+            tokens = tokenizer(
+                text,
+                add_special_tokens=False,  # We'll add them manually
+                padding=False,
+                truncation=False,
+                return_attention_mask=False
+            )['input_ids']
+
+            # Add BOS token at start, EOS at end
+            if tokenizer.bos_token_id is not None:
+                tokens = [tokenizer.bos_token_id] + tokens
+            if tokenizer.eos_token_id is not None:
+                tokens = tokens + [tokenizer.eos_token_id]
+
+            all_tokens.extend(tokens)
+
+        # Split into chunks of exactly max_length
+        chunks = []
+        for i in range(0, len(all_tokens) - max_length, max_length):
+            chunks.append(all_tokens[i:i + max_length])
+
+        return {'input_ids': chunks}
+
+    # Cache the packed dataset
+    cache_file = os.path.join(cache_dir, f"packed_{num_samples}_{max_length}.arrow") if cache_dir else None
+
+    print("Tokenizing and packing sequences...")
+    packed_dataset = dataset.map(
+        tokenize_and_pack,
+        batched=True,
+        batch_size=100,  # Process in smaller batches to avoid memory issues
+        remove_columns=dataset.column_names,
+        cache_file_name=cache_file,
+        load_from_cache_file=True,
+        desc="Packing sequences"
+    )
+
+    def collate_fn(batch):
+        """Simple collate function for packed sequences"""
+        # All sequences are already max_length, so just stack them
+        input_ids = torch.stack([torch.tensor(item['input_ids']) for item in batch])
+
+        # Create targets by shifting input by 1 position
+        inputs = input_ids[:, :-1]  # All tokens except last
+        targets = input_ids[:, 1:]  # All tokens except first
+
+        return {
+            'input_ids': inputs,
+            'targets': targets
+        }
+
+    dataloader = DataLoader(
+        packed_dataset,
+        batch_size=batch_size,
+        collate_fn=collate_fn,
+        num_workers=2,
+        pin_memory=True,
+        persistent_workers=True,
+        shuffle=True  # Shuffle for better training
+    )
+
+    print(f"Created packed dataloader with {len(packed_dataset)} sequences of length {max_length}")
+    return dataloader
+
 def train_model(args):
     """Train the simple GPT model"""
 
@@ -298,23 +382,32 @@ def train_model(args):
             m.float()
     #if hasattr(config, "coordinate_descent_tuning"):
     #    config.coordinate_descent_tuning = True  # suggested by @Chillee
-    model = torch.compile(model)
+    #model = torch.compile(model)
+
+    if args.distributed:
+        model = DDP(model, device_ids=[ddp_local_rank])
+        raw_model = model.module  # always contains the "raw" unwrapped model
+    else:
+        raw_model = model
 
     n_params =sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model has {n_params:.1f}M parameters")
     if args.wandb: run.config.update({"num_params": n_params})
 
     # Create dataloader
-    dataloader = create_dataloader(tokenizer, args.data_dir, batch_size=args.batch_size, max_length=args.max_len, num_samples=args.num_samples)
+    dataloader = create_packed_dataloader(tokenizer, args.data_dir, batch_size=args.batch_size, max_length=args.max_len, num_samples=args.num_samples)
 
     # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.1)
-    scheduler = get_constant_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=200,  # Fast warmup
-        #num_training_steps=args.training_steps,  # Total training steps
-        last_epoch=-1
-    )
+    # init the optimizer(s)
+    optimizer1 = torch.optim.Adam([raw_model.transformer.wte.weight], lr=0.6, betas=(0.9, 0.95), fused=True)
+    optimizer2 = torch.optim.Adam([raw_model.lm_head.weight], lr=0.008, betas=(0.9, 0.95), fused=True)
+    params = list(raw_model.transformer.h.parameters())
+    matrix_params = [p for p in params if p.ndim == 2]
+    scalar_params = [p for p in params if p.ndim < 2] + [raw_model.skip_weights]
+    optimizer3 = torch.optim.AdamW([raw_model.transformer.wte.weight], lr=0.04, betas=(0.9, 0.95), weight_decay=0.1, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
+    optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.9, 0.95), fused=True)  # note that this learning rate is neither sensitive nor tuned
+    optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
+    schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200) for o in optimizers]
 
     # Training loop
     model.train()
@@ -335,14 +428,16 @@ def train_model(args):
             targets = batch['targets'].to(device)
 
             # Forward pass
+            assert input_ids.shape[1] == args.max_len and input_ids.shape[0] == args.batch_size,\
+                f"got input tokens with shape: {input_ids.shape}"
             logits, loss = model(input_ids, targets)
 
             # Backward pass
-            optimizer.zero_grad()
+            [o.zero_grad() for o in optimizers]
             loss.backward()
             #torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            scheduler.step()
+            [o.step() for o in optimizers]
+            [s.step() for s in schedulers]
 
             epoch_loss += loss.item()
             num_batches += 1
@@ -413,6 +508,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--max_len", type=int, default=1024)
     arg_parser.add_argument("--num_samples", type=int, default=50_000)
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
+    arg_parser.add_argument("--distributed", type=int, default=0)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
     arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/fineweb/")
