@@ -390,13 +390,14 @@ def train_model(args):
             m.float()
     #if hasattr(config, "coordinate_descent_tuning"):
     #    config.coordinate_descent_tuning = True  # suggested by @Chillee
-    model = torch.compile(model)
 
     if args.distributed:
         model = DDP(model, device_ids=[ddp_local_rank])
         raw_model = model.module  # always contains the "raw" unwrapped model
     else:
         raw_model = model
+
+    model = torch.compile(model)
 
     n_params =sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model has {n_params:.1f}M parameters")
@@ -477,7 +478,7 @@ def train_model(args):
             break
 
     print("Training completed!")
-    return model, tokenizer
+    return raw_model, tokenizer
 
 
 def generate_text(model, tokenizer, prompt="The quick brown fox", max_length=50):
@@ -514,8 +515,8 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--batch_size", type=int, default=1)
     arg_parser.add_argument("--max_len", type=int, default=2**16)
-    arg_parser.add_argument("--num_samples", type=int, default=500_000)
-    arg_parser.add_argument("--training_steps", type=int, default=10_000)
+    arg_parser.add_argument("--num_samples", type=int, default=2_000_000)
+    arg_parser.add_argument("--training_steps", type=int, default=16_000)
     arg_parser.add_argument("--distributed", type=int, default=0)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
@@ -523,6 +524,7 @@ if __name__ == "__main__":
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
+    args.sim_name = f"{args.host_name}_{date}"
     args.date = date
     args.host_name = socket.gethostname()
     args.device = device
@@ -534,13 +536,23 @@ if __name__ == "__main__":
         run = wandb.init(
             entity="bellec-tu-wien",
             project="tiny-gpt",
-            name=f"{args.host_name}_{date}",
+            name=args.sim_name,
             config=args.__dict__,
         )
 
 
     # Train the model
     model, tokenizer = train_model(args)
+
+    #
+    if hasattr(model, "module"): # case of ddp
+        model = model.module
+    folder = f"checkpoints/{args.sim_name}"
+    file = f"{folder}/model.pt"
+    os.mkdir(folder)
+    torch.save(model, file)
+    print(f"saved - {file}")
+
 
     # Generate some text
     print("\n" + "=" * 50)
