@@ -195,27 +195,18 @@ class GPT(nn.Module):
         return logits, loss
 
 
-
-def create_dataloader_slow(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
-    """Create a dataloader from FineWeb dataset"""
-
-    # Set up cache directory
+def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
     if cache_dir is not None:
         os.makedirs(cache_dir, exist_ok=True)
 
     print("Loading FineWeb dataset...")
-    # Load FineWeb sample-10BT (smallest subset, ~10B tokens)
-    # Replace streaming=True with:
     dataset = load_dataset(
         "HuggingFaceFW/fineweb",
         name="sample-10BT",
         split="train",
         cache_dir=cache_dir,
-        streaming=False  # Much faster for small datasets
-    ).select(range(num_samples))  # Use select() instead of take()
-
-    # Take only a subset for quick training
-    dataset = dataset.take(num_samples)
+        streaming=False
+    ).select(range(num_samples))
 
     def tokenize_function(examples):
         # Don't pad during tokenization - waste of compute
@@ -228,19 +219,6 @@ def create_dataloader_slow(tokenizer, cache_dir, batch_size=32, max_length=256, 
             return_attention_mask=False  # Don't need attention mask
         )
         return {"input_ids": tokens["input_ids"]}
-
-    cache_file = os.path.join(cache_dir, f"tokenized_{num_samples}_{max_length}.arrow") if cache_dir else None
-
-    # Tokenize dataset
-    tokenized_dataset = dataset.map(
-        tokenize_function,
-        batched=True,
-        batch_size=1000,  # Larger batches for tokenization
-        remove_columns=dataset.column_names,  # Remove all original columns
-        cache_file_name=cache_file,  # Cache the tokenized data
-        load_from_cache_file=True,
-        desc="Tokenizing"
-    )
 
     def collate_fn(batch):
         input_ids = [torch.tensor(item['input_ids']) for item in batch]
@@ -279,50 +257,27 @@ def create_dataloader_slow(tokenizer, cache_dir, batch_size=32, max_length=256, 
             'targets': torch.stack(padded_targets)
         }
 
-    # Convert streaming dataset to iterable for DataLoader
-    dataloader = DataLoader(
-        tokenized_dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn
-    )
-
-    return dataloader
-
-
-def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
-    if cache_dir is not None:
-        os.makedirs(cache_dir, exist_ok=True)
-
-    print("Loading FineWeb dataset...")
-    dataset = load_dataset(
-        "HuggingFaceFW/fineweb",
-        name="sample-10BT",
-        split="train",
-        cache_dir=cache_dir,
-        streaming=False
-    ).select(range(num_samples))
-
     # Cache tokenized dataset
     cache_file = os.path.join(cache_dir, f"tokenized_{num_samples}_{max_length}.arrow") if cache_dir else None
 
     tokenized_dataset = dataset.map(
-        tokenize_function,
-        batched=True,
-        batch_size=1000,  # Larger batches for tokenization
-        remove_columns=dataset.column_names,  # Remove all original columns
-        cache_file_name=cache_file,  # Cache the tokenized data
-        load_from_cache_file=True,
-        desc="Tokenizing"
-    )
+            tokenize_function,
+            batched=True,
+            batch_size=1000,  # Larger batches for tokenization
+            remove_columns=dataset.column_names,  # Remove all original columns
+            cache_file_name=cache_file,  # Cache the tokenized data
+            load_from_cache_file=True,
+            desc="Tokenizing"
+        )
 
     dataloader = DataLoader(
-        tokenized_dataset,
-        batch_size=batch_size,
-        collate_fn=collate_fn,
-        num_workers=2,  # Add multiprocessing
-        pin_memory=True,  # Faster GPU transfer
-        persistent_workers=True  # Keep workers alive
-    )
+            tokenized_dataset,
+            batch_size=batch_size,
+            collate_fn=collate_fn,
+            num_workers=2,  # Add multiprocessing
+            pin_memory=True,  # Faster GPU transfer
+            persistent_workers=True  # Keep workers alive
+        )
 
     return dataloader
 
@@ -453,7 +408,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
-    arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/")
+    arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/fineweb/")
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
