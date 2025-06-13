@@ -12,6 +12,7 @@ flex_attention = torch.compile(flex_attention, dynamic=False)
 import time
 from dataclasses import dataclass
 import os
+import datetime
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -115,11 +116,18 @@ class Block(nn.Module):
         return x, v1
 
 @dataclass
-class GPTConfig:
+class TinyGPTConfig:
     vocab_size : int = 50304
-    n_layer : int = 8 #12
+    n_layer : int = 8
     n_head : int = 6 # head dim 128 suggested by @Grad62304977
-    n_embd : int = 6 * 64 #768
+    n_embd : int = 6 * 64
+
+@dataclass
+class GPT2Config:
+    vocab_size : int = 50304
+    n_layer : int = 12
+    n_head : int = 6 # head dim 128 suggested by @Grad62304977
+    n_embd : int = 768
 
 class GPT(nn.Module):
 
@@ -180,7 +188,10 @@ class GPT(nn.Module):
         if target is None:
             return logits, None
 
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target.view(-1))
+        # Much more efficient - no manual filtering needed
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)),
+                               target.view(-1),
+                               ignore_index=-100)
         return logits, loss
 
 
@@ -251,11 +262,11 @@ def create_dataloader(tokenizer, batch_size=32, max_length=256, num_samples=5000
 
             # Replace -1 tokens with UNK token and mask padded tokens
             #target_seq = torch.where(target_seq == -1, unk_token_id, target_seq)
-            #target_seq = torch.where(
-            #    input_seq == tokenizer.pad_token_id,
-            #    torch.tensor(-100),  # Use -100 for ignored tokens in loss
-            #    target_seq
-            #)
+            target_seq = torch.where(
+                input_seq == tokenizer.pad_token_id,
+                torch.tensor(-100),  # Use -100 for ignored tokens in loss
+                target_seq
+            )
 
             padded_inputs.append(input_seq)
             padded_targets.append(target_seq)
@@ -284,9 +295,12 @@ def train_model(args):
     tokenizer.pad_token = tokenizer.eos_token
 
     # Create model
-    model = GPT(config=GPTConfig()).to(device)
+    config = TinyGPTConfig() if args.model_size == "tiny" else GPT2Config() if "args.model_type" == "small" else None
+    model = GPT(config=config).to(device)
 
-    print(f"Model has {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M parameters")
+    n_params =sum(p.numel() for p in model.parameters()) / 1e6
+    print(f"Model has {n_params:.1f}M parameters")
+    if args.wandb: run.config.update({"num_params": n_params})
 
     # Create dataloader
     dataloader = create_dataloader(tokenizer, batch_size=args.bach_size, max_length=args.max_len, num_samples=args.num_samples)
@@ -336,6 +350,14 @@ def train_model(args):
 
             if total_steps % 50 == 0:
                 elapsed = time.time() - start_time
+
+                if args.wandb: run.log({
+                    "loss_mom": loss_mom,
+                    "loss": loss.item(),
+                    "elapsed": elapsed,
+                    "step": total_steps,
+                    })
+
                 print(f"Step {total_steps}, Loss: {loss_mom:.4f}, Time: {elapsed:.1f}s")
 
             if total_steps > args.training_steps:
@@ -383,12 +405,31 @@ def generate_text(model, tokenizer, prompt="The quick brown fox", max_length=50)
 
 if __name__ == "__main__":
     import argparse
+    import socket
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--bach_size", type=int, default=4)
     arg_parser.add_argument("--max_len", type=int, default=1024)
     arg_parser.add_argument("--num_samples", type=int, default=50_000)
     arg_parser.add_argument("--training_steps", type=int, default=10_000)
+    arg_parser.add_argument("--model_size", type=str, default="tiny")
+    arg_parser.add_argument("--wandb", type=int, default=1)
+
+    date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     args = arg_parser.parse_args()
+    args.date = date
+    args.host_name = socket.gethostname()
+    args.device = device
+
+
+    if args.wandb:
+
+        import wandb
+        run = wandb.init(
+            entity="bellec-tu-wien",
+            project="tiny-gpt",
+            name=f"{args.host_name}_{date}",
+            config=args.__dict__,
+        )
 
 
     # Train the model
