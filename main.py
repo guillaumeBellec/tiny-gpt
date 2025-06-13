@@ -318,7 +318,7 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
 
             all_tokens.extend(tokens)
 
-        L = max_length +1
+        L = max_length +1 # +1 because the collate with split next token, versus present token
         # Split into chunks of exactly max_length
         chunks = []
         for i in range(0, len(all_tokens) - L, L):
