@@ -521,8 +521,8 @@ if __name__ == "__main__":
     arg_parser.add_argument("--distributed", type=int, default=0)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
-    arg_parser.add_argument("--lr3", type=int, default=1e-3)
-    arg_parser.add_argument("--wd", type=int, default=1e-2)
+    arg_parser.add_argument("--lr3", type=float, default=1e-3)
+    arg_parser.add_argument("--wd", type=float, default=1e-2)
     arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/fineweb/")
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
