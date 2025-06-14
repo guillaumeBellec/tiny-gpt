@@ -416,7 +416,8 @@ def train_model(args):
     optimizer3 = torch.optim.AdamW(matrix_params, lr=args.lr3, betas=(0.9, 0.95), weight_decay=args.wd, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
     optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.9, 0.95), fused=True)  # note that this learning rate is neither sensitive nor tuned
     optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
-    schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200) for o in optimizers]
+    schedulers = [get_cosine_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
+    #schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200) for o in optimizers]
 
     # Training loop
     model.train()
