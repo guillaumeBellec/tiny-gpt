@@ -535,9 +535,6 @@ if __name__ == "__main__":
     args.log_folder = f"checkpoints/{args.sim_name}"
 
 
-    os.mkdir(args.log_folder)
-
-
 
     if args.distributed:
         # set up DDP (distributed data parallel). torchrun sets this env variable
@@ -563,6 +560,8 @@ if __name__ == "__main__":
         args.batch_size = args.device_batch_size * 1
         args.training_steps = args.total_steps
 
+    if args.master_process:
+        os.mkdir(args.log_folder)
 
     def print0(s, logonly=False):
         if args.master_process:
