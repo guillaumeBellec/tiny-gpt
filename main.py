@@ -535,6 +535,8 @@ if __name__ == "__main__":
     args.log_folder = f"checkpoints/{args.sim_name}"
 
 
+    os.mkdir(args.log_folder)
+
 
 
     if args.distributed:
@@ -601,7 +603,6 @@ if __name__ == "__main__":
             model = model.module
 
         file = f"{args.log_folder}/model.pt"
-        os.mkdir(args.log_folder)
         torch.save(model, file)
         print0(f"saved - {file}")
 
