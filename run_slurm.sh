@@ -3,13 +3,13 @@
 #SBATCH --partition=GPU-h100
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --output=last_dist_log.txt
 #SBATCH --gres=gpu:h100:4
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=400G
-#SBATCH --mail-user=guillaume.bellec@tuwien.ac.at
-#SBATCH --mail-type=END,FAIL
+###SBATCH --mail-user=guillaume.bellec@tuwien.ac.at
+###SBATCH --mail-type=END,FAIL
 
 # Activate conda environment
 source ~/.bashrc  # or wherever conda is initialized

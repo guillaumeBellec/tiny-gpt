@@ -548,7 +548,7 @@ if __name__ == "__main__":
         print(f"using device: {args.device}")
 
         args.master_process = (ddp_rank == 0)  # this process will do logging, checkpointing etc.
-
+        if not args.master_process: args.wandb = 0 # no redundant logging plz
         args.training_steps = args.total_steps // ddp_world_size
         args.batch_size = args.device_batch_size * ddp_world_size
     else:
