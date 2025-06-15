@@ -13,10 +13,9 @@ import time
 from dataclasses import dataclass
 import os
 import datetime
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
-# Set device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
 
 class Rotary(torch.nn.Module):
 
@@ -383,7 +382,7 @@ def train_model(args):
 
     # Create model
     config = TinyGPTConfig() if args.model_size == "tiny" else GPT2Config() if args.model_size == "small" else None
-    model = GPT(config=config).to(device)
+    model = GPT(config=config).to(args.device)
     model = model.cuda().bfloat16()
     for m in model.modules():
         if isinstance(m, CastedLinear):
@@ -399,12 +398,15 @@ def train_model(args):
 
     model = torch.compile(model)
 
-    n_params =sum(p.numel() for p in model.parameters()) / 1e6
+    n_params = sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model has {n_params:.1f}M parameters")
     if args.wandb: run.config.update({"num_params": n_params})
 
     # Create dataloader
-    dataloader = create_packed_dataloader(tokenizer, args.data_dir, batch_size=args.batch_size, max_length=args.max_len, num_samples=args.num_samples)
+    dataloader = create_packed_dataloader(tokenizer, args.data_dir,
+                                          batch_size=args.batch_size,
+                                          max_length=args.max_len,
+                                          num_samples=args.num_samples)
 
     # Optimizer
     # init the optimizer(s)
@@ -434,8 +436,8 @@ def train_model(args):
         num_batches = 0
 
         for batch in dataloader:
-            input_ids = batch['input_ids'].to(device)
-            targets = batch['targets'].to(device)
+            input_ids = batch['input_ids'].to(args.device)
+            targets = batch['targets'].to(args.device)
 
             # Forward pass
             assert input_ids.shape[1] == args.max_len and input_ids.shape[0] == args.batch_size,\
@@ -514,10 +516,10 @@ if __name__ == "__main__":
     import argparse
     import socket
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--batch_size", type=int, default=1)
+    arg_parser.add_argument("--device_batch_size", type=int, default=1)
     arg_parser.add_argument("--max_len", type=int, default=2**16)
     arg_parser.add_argument("--num_samples", type=int, default=2_000_000)
-    arg_parser.add_argument("--training_steps", type=int, default=16_000)
+    arg_parser.add_argument("--total_steps", type=int, default=16_000)
     arg_parser.add_argument("--distributed", type=int, default=0)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
@@ -530,8 +532,50 @@ if __name__ == "__main__":
     args.date = date
     args.host_name = socket.gethostname()
     args.sim_name = f"{args.host_name}_{date}"
-    args.device = device
+    args.log_folder = f"checkpoints/{args.sim_name}"
 
+
+
+
+    if args.distributed:
+        # set up DDP (distributed data parallel). torchrun sets this env variable
+        assert torch.cuda.is_available()
+        dist.init_process_group(backend='nccl')
+        ddp_rank = int(os.environ['RANK'])
+        ddp_local_rank = int(os.environ['LOCAL_RANK'])
+        ddp_world_size = int(os.environ['WORLD_SIZE'])
+        args.device = f'cuda:{ddp_local_rank}'
+        torch.cuda.set_device(args.device)
+        print(f"using device: {args.device}")
+
+        args.master_process = (ddp_rank == 0)  # this process will do logging, checkpointing etc.
+
+        args.training_steps = args.total_steps // ddp_world_size
+        args.batch_size = args.device_batch_size * ddp_world_size
+    else:
+
+        # Set device
+        args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device (non distributed): {args.device}")
+        args.master_process = True
+        args.batch_size = args.device_batch_size * 1
+        args.training_steps = args.total_steps
+
+
+    def print0(s, logonly=False):
+        if args.master_process:
+            with open(f"{args.log_folder}/log.txt", "a") as f:
+                if not logonly:
+                    print(s)
+                f.write(s + '\n')
+
+
+    print0(f"Running pytorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}\nnvidia-smi:")
+    import subprocess
+
+    result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    print0(f'{result.stdout}', logonly=True)
+    print0('=' * 100, logonly=True)
 
     if args.wandb:
 
@@ -547,30 +591,34 @@ if __name__ == "__main__":
     # Train the model
     model, tokenizer = train_model(args)
 
-    #
-    if hasattr(model, "module"): # case of ddp
-        model = model.module
-    folder = f"checkpoints/{args.sim_name}"
-    file = f"{folder}/model.pt"
-    os.mkdir(folder)
-    torch.save(model, file)
-    print(f"saved - {file}")
+    if args.master_process:
+        mem_allocated = torch.cuda.max_memory_allocated() // 1024 // 1024
+        print0(f"peak memory consumption: {mem_allocated} MiB")
+        if args.wandb: run.config.update({"cuda_mem_MB_allocated": mem_allocated})
 
+        #
+        if hasattr(model, "module"): # case of ddp
+            model = model.module
 
-    # Generate some text
-    print("\n" + "=" * 50)
-    print("GENERATION EXAMPLES:")
-    print("=" * 50)
+        file = f"{args.log_folder}/model.pt"
+        os.mkdir(args.log_folder)
+        torch.save(model, file)
+        print0(f"saved - {file}")
 
-    prompts = [
-        "The quick brown fox",
-        "In a distant galaxy",
-        "The art of programming"
-    ]
+        # Generate some text
+        print0("\n" + "=" * 50)
+        print0("GENERATION EXAMPLES:")
+        print0("=" * 50)
 
-    for prompt in prompts:
-        generated = generate_text(model, tokenizer, prompt, max_length=30)
-        print(f"\nPrompt: '{prompt}'")
-        print(f"Generated: {generated}")
+        prompts = [
+            "The quick brown fox",
+            "In a distant galaxy",
+            "The art of programming"
+        ]
 
-    print("\nTraining complete! The model can now generate simple text.")
+        for prompt in prompts:
+            generated = generate_text(model, tokenizer, prompt, max_length=30)
+            print0(f"\nPrompt: '{prompt}'")
+            print0(f"Generated: {generated}")
+
+        print0("\nTraining complete! The model can now generate simple text.")
