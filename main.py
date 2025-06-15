@@ -520,7 +520,7 @@ if __name__ == "__main__":
     arg_parser.add_argument("--max_len", type=int, default=2**16)
     arg_parser.add_argument("--num_samples", type=int, default=2_000_000)
     arg_parser.add_argument("--total_steps", type=int, default=16_000)
-    arg_parser.add_argument("--distributed", type=int, default=0)
+    arg_parser.add_argument("--distributed", type=int, default=1)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
     arg_parser.add_argument("--lr3", type=float, default=1e-3)
