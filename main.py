@@ -465,8 +465,8 @@ def train_model(args):
             if total_steps % 50 == 0:
                 elapsed = time.time() - start_time
 
-                eos_count = (s == 50256).int().sum().item()
                 s = tokenizer.decode(input_ids)
+                eos_count = (s == 50256).int().sum().item()
                 ints = tokenizer.encode(ints)
 
                 print(f"input ids: len={input_ids.shape} re_coded={ints.shape} eos_count={eos_count}, s={s}")
