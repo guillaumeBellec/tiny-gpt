@@ -192,7 +192,7 @@ class GPT(nn.Module):
         return logits, loss
 
 
-def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=5000):
+def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_samples=None):
     if cache_dir is not None:
         os.makedirs(cache_dir, exist_ok=True)
 
@@ -203,7 +203,9 @@ def create_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256, num_s
         split="train",
         cache_dir=cache_dir,
         streaming=False
-    ).select(range(num_samples))
+    )
+    if num_samples is not None and num_samples > 0:
+        dataset = dataset.select(range(num_samples))
 
     def tokenize_function(examples):
         # Don't pad during tokenization - waste of compute
@@ -418,8 +420,9 @@ def train_model(args):
     optimizer3 = torch.optim.AdamW(matrix_params, lr=args.lr3, betas=(0.9, 0.95), weight_decay=args.wd, fused=True) #Muon(matrix_params, lr=0.04, momentum=0.95)
     optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.9, 0.95), fused=True)  # note that this learning rate is neither sensitive nor tuned
     optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
+
+    # scheduler type in 0, 1, 2
     schedulers = [get_cosine_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
-    #schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200) for o in optimizers]
 
     # Training loop
     model.train()
@@ -459,6 +462,11 @@ def train_model(args):
 
             if total_steps % 50 == 0:
                 elapsed = time.time() - start_time
+
+                eos_count = (s == 50256).int().sum().item()
+                s = tokenizer.decode(input_ids)
+
+                print(f"input ids: len={input_ids.shape} eos_count={eos_count}, s={s}")
 
                 if args.wandb: run.log({
                     "loss_mom": loss_mom,
@@ -518,13 +526,14 @@ if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument("--device_batch_size", type=int, default=1)
     arg_parser.add_argument("--max_len", type=int, default=2**16)
-    arg_parser.add_argument("--num_samples", type=int, default=2_000_000)
-    arg_parser.add_argument("--total_steps", type=int, default=16_000)
+    arg_parser.add_argument("--num_samples", type=int, default=None)
+    arg_parser.add_argument("--total_steps", type=int, default=24_000)
     arg_parser.add_argument("--distributed", type=int, default=1)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
-    arg_parser.add_argument("--lr3", type=float, default=1e-3)
+    arg_parser.add_argument("--lr3", type=float, default=3e-3)
     arg_parser.add_argument("--wd", type=float, default=1e-1)
+
     arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/fineweb/")
 
     date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
