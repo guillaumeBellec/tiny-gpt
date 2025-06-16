@@ -465,8 +465,9 @@ def train_model(args):
 
                 eos_count = (s == 50256).int().sum().item()
                 s = tokenizer.decode(input_ids)
+                ints = tokenizer.encode(ints)
 
-                print(f"input ids: len={input_ids.shape} eos_count={eos_count}, s={s}")
+                print(f"input ids: len={input_ids.shape} re_coded={ints.shape} eos_count={eos_count}, s={s}")
 
                 if args.wandb: run.log({
                     "loss_mom": loss_mom,
@@ -524,11 +525,11 @@ if __name__ == "__main__":
     import argparse
     import socket
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument("--device_batch_size", type=int, default=1)
+    arg_parser.add_argument("--batch_size", type=int, default=1)
     arg_parser.add_argument("--max_len", type=int, default=2**16)
     arg_parser.add_argument("--num_samples", type=int, default=None)
     arg_parser.add_argument("--total_steps", type=int, default=24_000)
-    arg_parser.add_argument("--distributed", type=int, default=1)
+    arg_parser.add_argument("--distributed", type=int, default=None)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
     arg_parser.add_argument("--lr3", type=float, default=3e-3)
@@ -542,16 +543,16 @@ if __name__ == "__main__":
     args.host_name = socket.gethostname()
     args.sim_name = f"{args.host_name}_{date}"
     args.log_folder = f"checkpoints/{args.sim_name}"
-
-
+    args.device_count = torch.cuda.device_count()
+    if args.distributed is None: args.distributed = args.device_count > 1
 
     if args.distributed:
         # set up DDP (distributed data parallel). torchrun sets this env variable
         assert torch.cuda.is_available()
-        dist.init_process_group(backend='nccl')
         ddp_rank = int(os.environ['RANK'])
         ddp_local_rank = int(os.environ['LOCAL_RANK'])
         ddp_world_size = int(os.environ['WORLD_SIZE'])
+        dist.init_process_group(backend='nccl')
         args.device = f'cuda:{ddp_local_rank}'
         torch.cuda.set_device(args.device)
         print(f"using device: {args.device}")
@@ -559,14 +560,14 @@ if __name__ == "__main__":
         args.master_process = (ddp_rank == 0)  # this process will do logging, checkpointing etc.
         if not args.master_process: args.wandb = 0 # no redundant logging plz
         args.training_steps = args.total_steps // ddp_world_size
-        args.batch_size = args.device_batch_size * 1 #ddp_world_size
+
     else:
 
         # Set device
         args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         print(f"Using device (non distributed): {args.device}")
         args.master_process = True
-        args.batch_size = args.device_batch_size * 1
+
         args.training_steps = args.total_steps
 
     if args.master_process:
