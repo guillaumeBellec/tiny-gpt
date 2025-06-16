@@ -292,7 +292,9 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
         split="train",
         cache_dir=cache_dir,
         streaming=False
-    ).select(range(num_samples))
+    )
+    if num_samples is not None and num_samples> 0:
+        dataset = dataset.select(range(num_samples))
 
     def tokenize_and_pack(examples):
         """Tokenize and concatenate all sequences into one long sequence"""
