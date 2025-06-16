@@ -411,6 +411,7 @@ def train_model(args):
 
     model = torch.compile(model)
 
+
     n_params = sum(p.numel() for p in model.parameters()) / 1e6
     print(f"Model has {n_params:.1f}M parameters")
     if args.wandb: run.config.update({"num_params": n_params})
@@ -474,11 +475,10 @@ def train_model(args):
             if total_steps % 50 == 0:
                 elapsed = time.time() - start_time
 
-                s = tokenizer.decode(input_ids[0])
-                eos_count = (input_ids == 50256).int().sum().item()
-                ints = tokenizer.encode(ints)
+                #s = tokenizer.decode(input_ids[0])
+                #eos_count = (input_ids == 50256).int().sum().item()
 
-                print(f"input ids: len={input_ids.shape} re_coded={ints.shape} eos_count={eos_count}, s={s}")
+                #print(f"input ids: len={input_ids.shape} eos_count={eos_count}, inputs_ids={input_ids[0,:24].detach().cpu().numpy()} s={s}")
 
                 if args.wandb: run.log({
                     "loss_mom": loss_mom,
@@ -510,7 +510,10 @@ def generate_text(model, tokenizer: OpenAIGPTTokenizer, prompt="The quick brown 
 
     # Tokenize prompt
     model.cpu()
-    input_ids = tokenizer.encode(prompt, return_tensors="pt") #.to(device)
+    input_ids = tokenizer.encode(prompt, return_tensors="pt", add_special_tokens=False) #.to(device)
+    # add bos token, not by default with this tokenizer.
+    input_ids = torch.concat([tokenizer.bos_token_id * torch.ones_like(input_ids[:, 0:1]), input_ids], 1)
+
     assert input_ids[0,0] == tokenizer.bos_token_id
     assert input_ids[0,1] != tokenizer.bos_token_id
 
@@ -610,7 +613,6 @@ if __name__ == "__main__":
             name=args.sim_name,
             config=args.__dict__,
         )
-
 
     # Train the model
     model, tokenizer = train_model(args)
