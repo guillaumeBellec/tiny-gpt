@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import math
 from einops import rearrange
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, OpenAIGPTTokenizer
 from transformers import get_cosine_schedule_with_warmup, get_constant_schedule_with_warmup
 from torch.nn.attention.flex_attention import flex_attention, create_block_mask
 flex_attention = torch.compile(flex_attention, dynamic=False)
@@ -504,14 +504,15 @@ def train_model(args):
     return raw_model, tokenizer
 
 
-def generate_text(model, tokenizer, prompt="The quick brown fox", max_length=50):
+def generate_text(model, tokenizer: OpenAIGPTTokenizer, prompt="The quick brown fox", max_length=50):
     """Generate text with the trained model"""
     model.eval()
 
     # Tokenize prompt
     model.cpu()
     input_ids = tokenizer.encode(prompt, return_tensors="pt") #.to(device)
-    input_ids
+    assert input_ids[0,0] == tokenizer.bos_token_id
+    assert input_ids[0,1] != tokenizer.bos_token_id
 
     with torch.no_grad():
         for _ in range(max_length):
