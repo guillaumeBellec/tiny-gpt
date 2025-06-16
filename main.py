@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.ao.quantization.backend_config.native import input_output_only_quint8_dtype_config
 from torch.utils.data import DataLoader
 import math
 from einops import rearrange
@@ -148,9 +149,11 @@ class GPT(nn.Module):
 
     def forward(self, idx, target=None):
 
-        docs = (idx == 50256).cumsum(1)  # Shape: (16, 255) - keep batch dimension
-
         if target is not None:
+
+            # BOS_TOKEN_ID = 50256 (but also EOS... for gpt2)
+            docs = (torch.logical_and(idx == 50256, target != 50256)).cumsum(1)  # Shape: (16, 255) - keep batch dimension
+
             def document_causal_mask(b, h, q_idx, kv_idx):
                 causal_mask = q_idx >= kv_idx
                 document_mask = docs[b, q_idx] == docs[b, kv_idx]  # Index into specific batch
@@ -298,7 +301,12 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
 
     def tokenize_and_pack(examples):
         """Tokenize and concatenate all sequences into one long sequence"""
-        all_tokens = []
+
+
+        chunk_length = max_length +1 # +1 because the collate with split next token, versus present token
+        # Split into chunks of exactly max_length
+        chunks = []
+        current_chunk = []
 
         for text in examples['text']:
             # Tokenize without truncation first
@@ -318,16 +326,15 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
                 tokens = [tokenizer.bos_token_id] + tokens
             if tokens[-1] != tokenizer.eos_token_id:
                 tokens = tokens + [tokenizer.eos_token_id]
+            # TODO: currently not optimal because EOS_TOKEN_ID = BOS_TOKEN_ID, so we repeat the same separation token.
 
-            all_tokens.extend(tokens)
-
-        L = max_length +1 # +1 because the collate with split next token, versus present token
-        # Split into chunks of exactly max_length
-        chunks = []
-        for i in range(0, len(all_tokens) - L, L):
-            chunk = all_tokens[i:i + L]
-            if len(chunk) == L:
-                chunks.append(chunk)
+            if len(current_chunk) + len(tokens) < chunk_length:
+                current_chunk += tokens
+            else:
+                current_chunk = current_chunk + tokens[:chunk_length - len(current_chunk)] # rest of tokens is thrown away
+                assert len(current_chunk) == chunk_length, f"chunk length is {len(current_chunk)} expected {chunk_length}"
+                chunks.append(current_chunk)
+                current_chunk = []
 
         #print([len(c) for c in chunks])
         chunk_tokens = sum([len(c) for c in chunks])
@@ -382,6 +389,8 @@ def train_model(args):
     # Initialize tokenizer
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    #tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-2.7")
+
     tokenizer.pad_token = tokenizer.eos_token
 
     # Create model
@@ -466,7 +475,7 @@ def train_model(args):
                 elapsed = time.time() - start_time
 
                 s = tokenizer.decode(input_ids[0])
-                eos_count = (s == 50256).int().sum().item()
+                eos_count = (input_ids == 50256).int().sum().item()
                 ints = tokenizer.encode(ints)
 
                 print(f"input ids: len={input_ids.shape} re_coded={ints.shape} eos_count={eos_count}, s={s}")
@@ -502,6 +511,7 @@ def generate_text(model, tokenizer, prompt="The quick brown fox", max_length=50)
     # Tokenize prompt
     model.cpu()
     input_ids = tokenizer.encode(prompt, return_tensors="pt") #.to(device)
+    input_ids
 
     with torch.no_grad():
         for _ in range(max_length):
