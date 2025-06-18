@@ -436,8 +436,8 @@ def train_model(args):
 
     # scheduler type in 0, 1, 2
     schedulers = None
-    if args.scheduler_tpye == "warmup": schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
-    elif args.scheduler_tpye == "cosine": schedulers = [get_cosine_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
+    if args.scheduler_type == "warmup": schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
+    elif args.scheduler_type == "cosine": schedulers = [get_cosine_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
 
 
     # Training loop
