@@ -152,7 +152,8 @@ class GPT(nn.Module):
         if target is not None:
 
             # BOS_TOKEN_ID = 50256 (but also EOS... for gpt2)
-            docs = (torch.logical_and(idx == 50256, target != 50256)).cumsum(1)  # Shape: (16, 255) - keep batch dimension
+            #docs = (torch.logical_and(idx == 50256, target != 50256)).cumsum(1)  # Shape: (16, 255) - keep batch dimension
+            docs = (idx == 50256).cumsum(1)  # Shape: (16, 255) - keep batch dimension
 
             def document_causal_mask(b, h, q_idx, kv_idx):
                 causal_mask = q_idx >= kv_idx
@@ -320,13 +321,13 @@ def create_packed_dataloader(tokenizer, cache_dir, batch_size=32, max_length=256
 
             assert tokenizer.bos_token_id is not None
             assert tokenizer.eos_token_id is not None
+            assert tokenizer.eos_token_id == tokenizer.bos_token_id
 
             # Add BOS token at start, EOS at end
-            if tokens[0] != tokenizer.bos_token_id:
-                tokens = [tokenizer.bos_token_id] + tokens
+            # if tokens[0] != tokenizer.bos_token_id:
+            #    tokens = [tokenizer.bos_token_id] + tokens
             if tokens[-1] != tokenizer.eos_token_id:
                 tokens = tokens + [tokenizer.eos_token_id]
-            # TODO: currently not optimal because EOS_TOKEN_ID = BOS_TOKEN_ID, so we repeat the same separation token.
 
             if len(current_chunk) + len(tokens) < chunk_length:
                 current_chunk += tokens
@@ -434,7 +435,10 @@ def train_model(args):
     optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
 
     # scheduler type in 0, 1, 2
-    schedulers = [get_cosine_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
+    schedulers = None
+    if args.scheduler_tpye == "warmup": schedulers = [get_constant_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
+    elif args.scheduler_tpye == "cosine": schedulers = [get_cosine_schedule_with_warmup(o,num_warmup_steps=200, num_training_steps=args.training_steps) for o in optimizers]
+
 
     # Training loop
     model.train()
@@ -464,7 +468,7 @@ def train_model(args):
             loss.backward()
             #torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             [o.step() for o in optimizers]
-            [s.step() for s in schedulers]
+            if schedulers: [s.step() for s in schedulers]
 
             epoch_loss += loss.item()
             num_batches += 1
@@ -518,15 +522,19 @@ def generate_text(model, tokenizer: OpenAIGPTTokenizer, prompt="The quick brown 
     assert input_ids[0,1] != tokenizer.bos_token_id
 
     with torch.no_grad():
+        n_generated = 0
         for _ in range(max_length):
             # Forward pass
             logits, _ = model(input_ids)
 
             # Get next token (simple greedy decoding)
+            if n_generated == 0:
+                logits[0, -1, 50256] -= 1e6 # mask EOS at first generation.
             next_token = torch.argmax(logits[0, -1, :], dim=-1, keepdim=True)
 
             # Append to sequence
             input_ids = torch.cat([input_ids, next_token.unsqueeze(0)], dim=-1)
+            n_generated += 1
 
             # Stop if we hit the end token
             if next_token.item() == tokenizer.eos_token_id:
@@ -548,8 +556,9 @@ if __name__ == "__main__":
     arg_parser.add_argument("--distributed", type=int, default=None)
     arg_parser.add_argument("--model_size", type=str, default="small")
     arg_parser.add_argument("--wandb", type=int, default=1)
-    arg_parser.add_argument("--lr3", type=float, default=3e-3)
+    arg_parser.add_argument("--lr3", type=float, default=2e-3)
     arg_parser.add_argument("--wd", type=float, default=1e-1)
+    arg_parser.add_argument("--scheduler_type", type=str, default=None)
 
     arg_parser.add_argument("--data_dir", type=str, default="/scratch/guillaume.bellec/fineweb/")
 
