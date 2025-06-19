@@ -505,18 +505,19 @@ def train_model(args):
             break
 
     print("Training completed!")
-    return raw_model, tokenizer
+    return model, tokenizer
 
 
-def generate_text(model, tokenizer: OpenAIGPTTokenizer, prompt="The quick brown fox", max_length=50):
+def generate_text(args, model, tokenizer: OpenAIGPTTokenizer, prompt="The quick brown fox", max_length=50):
     """Generate text with the trained model"""
     model.eval()
 
     # Tokenize prompt
-    model.cpu()
+    #model.cpu()
     input_ids = tokenizer.encode(prompt, return_tensors="pt", add_special_tokens=False) #.to(device)
     # add bos token, not by default with this tokenizer.
     input_ids = torch.concat([tokenizer.bos_token_id * torch.ones_like(input_ids[:, 0:1]), input_ids], 1)
+    input_ids = input_ids.to(args.device)
 
     assert input_ids[0,0] == tokenizer.bos_token_id
     assert input_ids[0,1] != tokenizer.bos_token_id
@@ -651,7 +652,7 @@ if __name__ == "__main__":
         ]
 
         for prompt in prompts:
-            generated = generate_text(model, tokenizer, prompt, max_length=30)
+            generated = generate_text(args, model, tokenizer, prompt, max_length=30)
             print0(f"\nPrompt: '{prompt}'")
             print0(f"Generated: {generated}")
 
